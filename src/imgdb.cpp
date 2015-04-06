@@ -256,9 +256,10 @@ sendimg(int sd, imsg_t *imsg, char *image, long imgsize, int numseg)
 
     /* Lab7 Task 2:
      * Initialize any token bucket filter variables you may have here.
-    */
+     */
     /* Lab7 YOUR CODE HERE */
-    
+    float tokens_created = bsize;
+
     /* 
      * make sure that the send buffer is of size at least mss.
      */
@@ -315,6 +316,36 @@ sendimg(int sd, imsg_t *imsg, char *image, long imgsize, int numseg)
        * Also decrement token bucket size when a segment is sent.
        */
       /* Lab7 YOUR CODE HERE */
+      assert(tokens_created <= bsize);
+
+      float segment_tokens = (float)segsize / IMGDB_BPTOK;
+
+      if (tokens_created < segment_tokens) {
+        float tokens_remaining = segment_tokens - tokens_created;
+        float random_multiple = (float) random()/INT_MAX * bsize; // tokens 
+       
+        // Generate tokens
+        tokens_remaining += random_multiple;
+        tokens_remaining = (tokens_remaining + tokens_created < bsize)
+            ? tokens_remaining
+            : bsize - tokens_created;
+
+        tokens_created += tokens_remaining;
+        float usleep_time = tokens_remaining / trate * 1000000; /* micros */
+        
+        fprintf(
+            stderr,
+            "imgdb::handleqry: accumulating tokens for (s:ms:us) %u:%u:%u\n",
+            (unsigned int) usleep_time / 1000000,
+            ((unsigned int)usleep_time / 1000) % 1000,
+            (unsigned int)usleep_time % 1000
+        );
+        usleep(usleep_time);
+      
+      } else {
+        // Send tokens
+        tokens_created -= segment_tokens;   
+      }
 
       /* 
        * With sufficient tokens in the token bucket, send one segment
@@ -391,6 +422,15 @@ handleqry()
        * Each token covers IMGDB_BPTOK bytes.
        */
       /* Lab7: YOUR CODE HERE */
+      /* DONE */
+      unsigned int datasize = mss - sizeof(ihdr_t) - NETIMG_UDPIP;
+      bsize = (float)datasize / IMGDB_BPTOK; // ceil 
+      
+      if (rwnd) {
+        bsize *= rwnd;
+      }
+     
+      trate = 128 * frate / IMGDB_BPTOK;
       
       imgdsize = marshall_imsg(&imsg);
       net_assert((imgdsize > (double) LONG_MAX),
